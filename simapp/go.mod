@@ -7,6 +7,7 @@ require (
 	cosmossdk.io/client/v2 v2.11.0
 	cosmossdk.io/core v1.1.0
 	cosmossdk.io/depinject v1.2.1
+	cosmossdk.io/errors v1.1.0
 	cosmossdk.io/log/v2 v2.1.0
 	cosmossdk.io/math v1.5.3
 	cosmossdk.io/tools/confix v0.1.2
@@ -18,7 +19,7 @@ require (
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/mock v0.6.0
@@ -34,7 +35,6 @@ require (
 	cloud.google.com/go/monitoring v1.30.0 // indirect
 	cloud.google.com/go/storage v1.68.0 // indirect
 	cosmossdk.io/collections v1.4.0 // indirect
-	cosmossdk.io/errors v1.1.0 // indirect
 	cosmossdk.io/schema v1.1.0 // indirect
 	filippo.io/bigmod v0.1.1-0.20260103110540-f8a47775ebe5 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
