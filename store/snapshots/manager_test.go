@@ -1,0 +1,372 @@
+package snapshots_test
+
+import (
+	"errors"
+	"testing"
+
+	db "github.com/cosmos/cosmos-db"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"cosmossdk.io/log/v2"
+
+	"github.com/cosmos/cosmos-sdk/store/v2/snapshots"
+	"github.com/cosmos/cosmos-sdk/store/v2/snapshots/types"
+)
+
+var opts = types.NewSnapshotOptions(1500, 2)
+
+func TestManager_List(t *testing.T) {
+	store := setupStore(t)
+	snapshotter := &mockSnapshotter{}
+	snapshotter.SetSnapshotInterval(opts.Interval)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+	require.Equal(t, opts.Interval, snapshotter.GetSnapshotInterval())
+
+	mgrList, err := manager.List()
+	require.NoError(t, err)
+	storeList, err := store.List()
+	require.NoError(t, err)
+
+	require.NotEmpty(t, storeList)
+	assert.Equal(t, storeList, mgrList)
+
+	// list should not block or error on busy managers
+	manager = setupBusyManager(t)
+	list, err := manager.List()
+	require.NoError(t, err)
+	assert.Equal(t, []*types.Snapshot{}, list)
+
+	require.NoError(t, manager.Close())
+}
+
+func TestManager_LoadChunk(t *testing.T) {
+	store := setupStore(t)
+	manager := snapshots.NewManager(store, opts, &mockSnapshotter{}, nil, log.NewNopLogger())
+
+	// Existing chunk should return body
+	chunk, err := manager.LoadChunk(2, 1, 1)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{2, 1, 1}, chunk)
+
+	// Missing chunk should return nil
+	chunk, err = manager.LoadChunk(2, 1, 9)
+	require.NoError(t, err)
+	assert.Nil(t, chunk)
+
+	// LoadChunk should not block or error on busy managers
+	manager = setupBusyManager(t)
+	chunk, err = manager.LoadChunk(2, 1, 0)
+	require.NoError(t, err)
+	assert.Nil(t, chunk)
+}
+
+func TestManager_Take(t *testing.T) {
+	store := setupStore(t)
+	items := [][]byte{
+		{1, 2, 3},
+		{4, 5, 6},
+		{7, 8, 9},
+	}
+	snapshotter := &mockSnapshotter{
+		items:            items,
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+	}
+	extSnapshotter := newExtSnapshotter(10)
+
+	expectChunks := snapshotItems(items, extSnapshotter)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+	err := manager.RegisterExtensions(extSnapshotter)
+	require.NoError(t, err)
+
+	// nil manager should return error
+	_, err = (*snapshots.Manager)(nil).Create(1)
+	require.Error(t, err)
+
+	// creating a snapshot at a lower height than the latest should error
+	_, err = manager.Create(3)
+	require.Error(t, err)
+	_, didPruneHeight := snapshotter.prunedHeights[3]
+	require.False(t, didPruneHeight)
+
+	// creating a snapshot at a higher height should be fine, and should return it
+	snapshot, err := manager.Create(5)
+	require.NoError(t, err)
+	_, didPruneHeight = snapshotter.prunedHeights[5]
+	require.True(t, didPruneHeight)
+
+	assert.Equal(t, &types.Snapshot{
+		Height: 5,
+		Format: snapshotter.SnapshotFormat(),
+		Chunks: 1,
+		Hash:   []uint8{0xd3, 0x7d, 0xe0, 0x50, 0xe6, 0x11, 0xad, 0xcd, 0x82, 0xd, 0xed, 0xca, 0xca, 0xaa, 0xeb, 0x8f, 0x39, 0x88, 0x5e, 0xe2, 0x0, 0x90, 0x96, 0x98, 0x85, 0x66, 0x26, 0x8, 0xe8, 0x5f, 0x7d, 0x36},
+		Metadata: types.Metadata{
+			ChunkHashes: checksums(expectChunks),
+		},
+	}, snapshot)
+
+	storeSnapshot, chunks, err := store.Load(snapshot.Height, snapshot.Format)
+	require.NoError(t, err)
+	assert.Equal(t, snapshot, storeSnapshot)
+	assert.Equal(t, expectChunks, readChunks(chunks))
+
+	// creating a snapshot while a different snapshot is being created should error
+	manager = setupBusyManager(t)
+	_, err = manager.Create(9)
+	require.Error(t, err)
+}
+
+func TestManager_CreateDoesNotPruneWhenSnapshotIsBusy(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), GetTempDir(t))
+	require.NoError(t, err)
+	snapshotter := &mockSnapshotter{
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+		snapshotStarted:  make(chan struct{}),
+		snapshotRelease:  make(chan struct{}),
+	}
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, createErr := manager.Create(1)
+		createDone <- createErr
+	}()
+	<-snapshotter.snapshotStarted
+
+	_, err = manager.Create(2)
+	require.Error(t, err)
+	_, didPruneHeight := snapshotter.prunedHeights[2]
+	require.False(t, didPruneHeight)
+
+	close(snapshotter.snapshotRelease)
+	require.NoError(t, <-createDone)
+}
+
+func TestManager_Prune(t *testing.T) {
+	store := setupStore(t)
+	snapshotter := &mockSnapshotter{}
+	snapshotter.SetSnapshotInterval(opts.Interval)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	pruned, err := manager.Prune(2)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, pruned)
+
+	list, err := manager.List()
+	require.NoError(t, err)
+	assert.Len(t, list, 3)
+
+	// Prune should error while a snapshot is being taken
+	manager = setupBusyManager(t)
+	_, err = manager.Prune(2)
+	require.Error(t, err)
+}
+
+func TestManager_Restore(t *testing.T) {
+	store := setupStore(t)
+	target := &mockSnapshotter{
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+	}
+	extSnapshotter := newExtSnapshotter(0)
+	manager := snapshots.NewManager(store, opts, target, nil, log.NewNopLogger())
+	err := manager.RegisterExtensions(extSnapshotter)
+	require.NoError(t, err)
+
+	expectItems := [][]byte{
+		{1, 2, 3},
+		{4, 5, 6},
+		{7, 8, 9},
+	}
+
+	chunks := snapshotItems(expectItems, newExtSnapshotter(10))
+
+	// Restore errors on invalid format
+	err = manager.Restore(types.Snapshot{
+		Height:   3,
+		Format:   0,
+		Hash:     []byte{1, 2, 3},
+		Chunks:   uint32(len(chunks)),
+		Metadata: types.Metadata{ChunkHashes: checksums(chunks)},
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrUnknownFormat)
+
+	// Restore errors on no chunks
+	err = manager.Restore(types.Snapshot{Height: 3, Format: types.CurrentFormat, Hash: []byte{1, 2, 3}})
+	require.Error(t, err)
+
+	// Restore errors on chunk and chunk hashes mismatch
+	err = manager.Restore(types.Snapshot{
+		Height:   3,
+		Format:   types.CurrentFormat,
+		Hash:     []byte{1, 2, 3},
+		Chunks:   4,
+		Metadata: types.Metadata{ChunkHashes: checksums(chunks)},
+	})
+	require.Error(t, err)
+
+	// Starting a restore works
+	err = manager.Restore(types.Snapshot{
+		Height:   3,
+		Format:   types.CurrentFormat,
+		Hash:     []byte{1, 2, 3},
+		Chunks:   1,
+		Metadata: types.Metadata{ChunkHashes: checksums(chunks)},
+	})
+	require.NoError(t, err)
+
+	// While the restore is in progress, any other operations fail
+	_, err = manager.Create(4)
+	require.Error(t, err)
+	_, didPruneHeight := target.prunedHeights[4]
+	require.False(t, didPruneHeight)
+
+	_, err = manager.Prune(1)
+	require.Error(t, err)
+
+	// Feeding an invalid chunk should error due to invalid checksum, but not abort restoration.
+	_, err = manager.RestoreChunk([]byte{9, 9, 9})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, types.ErrChunkHashMismatch))
+
+	// Feeding the chunks should work
+	for i, chunk := range chunks {
+		done, err := manager.RestoreChunk(chunk)
+		require.NoError(t, err)
+		if i == len(chunks)-1 {
+			assert.True(t, done)
+		} else {
+			assert.False(t, done)
+		}
+	}
+
+	assert.Equal(t, expectItems, target.items)
+	assert.Equal(t, 10, len(extSnapshotter.state))
+
+	// The snapshot is saved in local snapshot store
+	snapshots, err := store.List()
+	require.NoError(t, err)
+	snapshot := snapshots[0]
+	require.Equal(t, uint64(3), snapshot.Height)
+	require.Equal(t, types.CurrentFormat, snapshot.Format)
+
+	// Starting a new restore should fail now, because the target already has contents.
+	err = manager.Restore(types.Snapshot{
+		Height:   3,
+		Format:   types.CurrentFormat,
+		Hash:     []byte{1, 2, 3},
+		Chunks:   3,
+		Metadata: types.Metadata{ChunkHashes: checksums(chunks)},
+	})
+	require.Error(t, err)
+
+	// But if we clear out the target we should be able to start a new restore. This time we'll
+	// fail it with a checksum error. That error should stop the operation, so that we can do
+	// a prune operation right after.
+	target.items = nil
+	err = manager.Restore(types.Snapshot{
+		Height:   3,
+		Format:   types.CurrentFormat,
+		Hash:     []byte{1, 2, 3},
+		Chunks:   1,
+		Metadata: types.Metadata{ChunkHashes: checksums(chunks)},
+	})
+	require.NoError(t, err)
+}
+
+func TestManager_CreateDoesNotPruneOnSnapshotSaveError(t *testing.T) {
+	snapshotter := &mockErrorSnapshotter{
+		prunedHeights:   make(map[int64]struct{}),
+		canceledHeights: make(map[int64]struct{}),
+	}
+	store, err := snapshots.NewStore(db.NewMemDB(), GetTempDir(t))
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	_, err = manager.Create(1)
+	require.Error(t, err)
+	_, didPruneHeight := snapshotter.prunedHeights[1]
+	require.False(t, didPruneHeight)
+	_, didCancelHeight := snapshotter.canceledHeights[1]
+	require.True(t, didCancelHeight)
+}
+
+func TestManager_CreatePrunesWithoutSnapshotLifecycle(t *testing.T) {
+	inner := &mockSnapshotter{
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+	}
+	snapshotter := &snapshotterWithoutLifecycle{
+		Snapshotter:   inner,
+		prunedHeights: make(map[int64]struct{}),
+	}
+	store, err := snapshots.NewStore(db.NewMemDB(), GetTempDir(t))
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	_, err = manager.Create(1)
+	require.NoError(t, err)
+	require.Contains(t, snapshotter.prunedHeights, int64(1))
+}
+
+func TestManager_CreateNotifiesLegacySnapshotAnnouncer(t *testing.T) {
+	inner := &mockSnapshotter{
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+	}
+	snapshotter := &legacySnapshotter{inner: inner}
+	store, err := snapshots.NewStore(db.NewMemDB(), GetTempDir(t))
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	_, err = manager.Create(1)
+	require.NoError(t, err)
+	require.Contains(t, inner.announcedHeights, int64(1))
+	require.Contains(t, inner.prunedHeights, int64(1))
+}
+
+func TestManager_CreateCompletesLegacySnapshotAnnouncerOnSaveError(t *testing.T) {
+	inner := &mockSnapshotter{
+		announcedHeights: make(map[int64]struct{}),
+		prunedHeights:    make(map[int64]struct{}),
+	}
+	snapshotter := &failingLegacySnapshotter{legacySnapshotter: &legacySnapshotter{inner: inner}}
+	store, err := snapshots.NewStore(db.NewMemDB(), GetTempDir(t))
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, snapshotter, nil, log.NewNopLogger())
+
+	_, err = manager.Create(1)
+	require.Error(t, err)
+	require.Contains(t, inner.announcedHeights, int64(1))
+	require.Contains(t, inner.prunedHeights, int64(1))
+}
+
+type mockExtensionSnapshotter struct {
+	types.ExtensionSnapshotter
+	formats []uint32
+}
+
+func (m *mockExtensionSnapshotter) SnapshotName() string       { return "mock" }
+func (m *mockExtensionSnapshotter) SupportedFormats() []uint32 { return m.formats }
+
+func TestIsFormatSupported(t *testing.T) {
+	mockExtension := &mockExtensionSnapshotter{
+		formats: []uint32{1, 2},
+	}
+
+	t.Run("supported format", func(t *testing.T) {
+		require.True(t, snapshots.IsFormatSupported(mockExtension, 1))
+	})
+
+	t.Run("unsupported format", func(t *testing.T) {
+		require.False(t, snapshots.IsFormatSupported(mockExtension, 3))
+	})
+
+	t.Run("empty supported formats", func(t *testing.T) {
+		emptyExtension := &mockExtensionSnapshotter{formats: []uint32{}}
+		require.False(t, snapshots.IsFormatSupported(emptyExtension, 1))
+	})
+}
