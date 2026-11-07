@@ -34,7 +34,7 @@ func TestDefaultGenesis_HardcodedParameters(t *testing.T) {
 
 	// Invariant: treasury_address must be a standard valid Bech32 address
 	require.NotEmpty(t, gs.Params.TreasuryAddress)
-	require.Equal(t, "cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw", gs.Params.TreasuryAddress)
+	require.Equal(t, "aether1cxlt8kznps92fwu3j6npahx4mjfutydyay289x", gs.Params.TreasuryAddress)
 
 	// Must be cryptographically valid Bech32
 	addr, err := sdk.AccAddressFromBech32(gs.Params.TreasuryAddress)

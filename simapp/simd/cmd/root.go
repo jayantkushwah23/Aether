@@ -15,8 +15,16 @@ import (
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	"github.com/cosmos/cosmos-sdk/server"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 )
+
+func init() {
+	cfg := sdk.GetConfig()
+	cfg.SetBech32PrefixForAccount("aether", "aetherpub")
+	cfg.SetBech32PrefixForValidator("aethervaloper", "aethervaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("aethervalcons", "aethervalconspub")
+}
 
 // NewRootCmd creates a new root command for simd. It is called once in the
 // main function.

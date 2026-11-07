@@ -11,7 +11,7 @@ const (
 	DefaultFounderBps uint64 = 2000
 
 	// DefaultTreasuryAddress is a standard valid Bech32 address used as the default founder treasury.
-	DefaultTreasuryAddress string = "cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw"
+	DefaultTreasuryAddress string = "aether1cxlt8kznps92fwu3j6npahx4mjfutydyay289x"
 
 	// MaxFounderBps represents 100% in basis points (10000 bps)
 	MaxFounderBps uint64 = 10000

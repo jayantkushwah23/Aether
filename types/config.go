@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	DefaultKeyringServiceName = "cosmos"
-	EnvConfigScope            = "COSMOS_SDK_CONFIG_SCOPE"
+	DefaultKeyringServiceName = "aether"
+	EnvConfigScope            = "AETHER_SDK_CONFIG_SCOPE"
 )
 
 type Config struct {
