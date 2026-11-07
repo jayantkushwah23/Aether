@@ -50,7 +50,7 @@ foreach ($file in $Files) {
 }
 
 # 3. SCP Transfer
-Write-Host "[3/4] Uploading frontend files to production web server ($Ec2Host:/var/www/html)..." -ForegroundColor Green
+Write-Host "[3/4] Uploading frontend files to production web server (${Ec2Host}:/var/www/html)..." -ForegroundColor Green
 scp.exe -i $ResolvedKey -o StrictHostKeyChecking=no -r "$FrontendPath\*" "${Ec2User}@${Ec2Host}:/var/www/html/"
 
 # 4. Reload Nginx & Set Permissions
