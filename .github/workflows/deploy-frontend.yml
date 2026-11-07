@@ -1,0 +1,120 @@
+name: Deploy Aether Frontend Portal
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deployment target'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - github-pages
+          - aws-ec2
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'frontend-deployment'
+  cancel-in-progress: true
+
+jobs:
+  validate-and-package:
+    name: Validate and Package Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify Frontend Integrity
+        run: |
+          echo "=== Checking Frontend Asset Existence ==="
+          test -f frontend/index.html || { echo "Missing frontend/index.html"; exit 1; }
+          test -f frontend/styles.css || { echo "Missing frontend/styles.css"; exit 1; }
+          test -f frontend/app.js || { echo "Missing frontend/app.js"; exit 1; }
+          
+          echo "=== Validating Active Cloud Network Mappings ==="
+          grep -q "34.207.176.57:26657" frontend/app.js || { echo "Invalid or missing RPC mapping in app.js"; exit 1; }
+          grep -q "34.207.176.57:1317" frontend/app.js || { echo "Invalid or missing REST mapping in app.js"; exit 1; }
+          grep -q "aether-1" frontend/app.js || { echo "Invalid Chain ID in app.js"; exit 1; }
+          echo "All asset integrity and network checks passed."
+
+      - name: Package Distributable Artifact
+        run: |
+          mkdir -p dist
+          cp -r frontend/* dist/
+          tar -czf frontend-portal-latest.tar.gz -C dist .
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-portal-bundle
+          path: frontend-portal-latest.tar.gz
+
+  deploy-github-pages:
+    name: Deploy to GitHub Pages
+    needs: validate-and-package
+    if: github.event.inputs.target == 'all' || github.event.inputs.target == 'github-pages' || github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './frontend'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  deploy-aws-ec2:
+    name: Sync to AWS EC2 Production Web Server
+    needs: validate-and-package
+    if: github.event.inputs.target == 'all' || github.event.inputs.target == 'aws-ec2' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to Live AWS Server
+        env:
+          EC2_HOST: "34.207.176.57"
+          EC2_USER: "ubuntu"
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "Notice: EC2_SSH_KEY secret not configured in repository. Skipping automated SSH rsync."
+            echo "Direct public server hosting is maintained natively on http://$EC2_HOST"
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+          echo "Synchronizing /frontend to production Nginx web root..."
+          scp -r frontend/* "$EC2_USER@$EC2_HOST:/var/www/html/"
+          ssh "$EC2_USER@$EC2_HOST" "sudo chown -R www-data:www-data /var/www/html && sudo systemctl reload nginx"
+          
+          echo "Verifying live HTTP 200 response..."
+          curl -sI "http://$EC2_HOST" | grep -q "200 OK"
+          echo "Production deployment successful: http://$EC2_HOST"

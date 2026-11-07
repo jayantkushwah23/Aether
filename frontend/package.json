@@ -1,0 +1,22 @@
+{
+  "name": "aether-portal",
+  "version": "1.0.0",
+  "description": "Commercial Web Portal & Token Factory for the Aether Network (Chain ID: aether-1)",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve -s . -l 3000",
+    "serve": "python -m http.server 3000",
+    "deploy:vercel": "vercel --prod",
+    "deploy:ec2": "powershell -File ../scripts/deploy-frontend.ps1"
+  },
+  "keywords": [
+    "cosmos-sdk",
+    "aether",
+    "keplr",
+    "blockchain",
+    "token-factory",
+    "layer1"
+  ],
+  "author": "Aether Network",
+  "license": "Apache-2.0"
+}
