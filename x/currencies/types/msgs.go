@@ -4,12 +4,22 @@ import (
 	"context"
 	fmt "fmt"
 
+	"github.com/cosmos/gogoproto/proto"
 	"google.golang.org/grpc"
 
 	"cosmossdk.io/math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
+
+func init() {
+	proto.RegisterType((*MsgCreateDenom)(nil), "cosmos.currencies.v1.MsgCreateDenom")
+	proto.RegisterType((*MsgMint)(nil), "cosmos.currencies.v1.MsgMint")
+	proto.RegisterType((*MsgBurn)(nil), "cosmos.currencies.v1.MsgBurn")
+	proto.RegisterType((*MsgCreateDenomResponse)(nil), "cosmos.currencies.v1.MsgCreateDenomResponse")
+	proto.RegisterType((*MsgMintResponse)(nil), "cosmos.currencies.v1.MsgMintResponse")
+	proto.RegisterType((*MsgBurnResponse)(nil), "cosmos.currencies.v1.MsgBurnResponse")
+}
 
 var (
 	_ sdk.Msg = (*MsgCreateDenom)(nil)

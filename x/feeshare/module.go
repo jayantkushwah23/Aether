@@ -53,16 +53,20 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(_ client.Context, _ *gwruntime.S
 // DefaultGenesis returns the feeshare module's default genesis state as raw JSON bytes.
 // Hardcodes the default genesis parameters so that 'founder_bps' initializes to 2000 (20%)
 // and 'treasury_address' is set to a standard valid Bech32 address.
-func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
-	return cdc.MustMarshalJSON(types.DefaultGenesis())
+func (AppModuleBasic) DefaultGenesis(_ codec.JSONCodec) json.RawMessage {
+	bz, err := json.Marshal(types.DefaultGenesis())
+	if err != nil {
+		panic(err)
+	}
+	return bz
 }
 
 // ValidateGenesis performs stateless genesis state validation for the feeshare module.
 // If the parameters are invalid (e.g. founder_bps > 10000 or treasury_address is not
 // a valid Bech32 address), an error is returned which prevents the chain from booting up.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
+func (AppModuleBasic) ValidateGenesis(_ codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var data types.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &data); err != nil {
+	if err := json.Unmarshal(bz, &data); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 
@@ -90,6 +94,9 @@ func NewAppModule(k *keeper.Keeper) AppModule {
 // IsAppModule implements the appmodule.AppModule interface.
 func (AppModule) IsAppModule() {}
 
+// IsOnePerModuleType implements the appmodule.AppModule interface.
+func (AppModule) IsOnePerModuleType() {}
+
 // DefaultGenesis returns the default genesis state as raw bytes.
 func (am AppModule) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 	return am.AppModuleBasic.DefaultGenesis(cdc)
@@ -102,9 +109,9 @@ func (am AppModule) ValidateGenesis(cdc codec.JSONCodec, txConfig client.TxEncod
 
 // InitGenesis performs genesis initialization for the feeshare module.
 // If the genesis parameters are invalid, InitGenesis panics to halt node startup.
-func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, bz json.RawMessage) {
+func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, bz json.RawMessage) {
 	var genesisState types.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &genesisState); err != nil {
+	if err := json.Unmarshal(bz, &genesisState); err != nil {
 		panic(fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err))
 	}
 
@@ -120,7 +127,7 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, bz json.Ra
 }
 
 // ExportGenesis returns the exported genesis state as raw bytes for the feeshare module.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
+func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMessage {
 	var gs *types.GenesisState
 	if am.keeper != nil {
 		params, err := am.keeper.GetParams(ctx)
@@ -133,7 +140,11 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 		gs = types.DefaultGenesis()
 	}
 
-	return cdc.MustMarshalJSON(gs)
+	bz, err := json.Marshal(gs)
+	if err != nil {
+		panic(err)
+	}
+	return bz
 }
 
 // ConsensusVersion implements HasConsensusVersion.

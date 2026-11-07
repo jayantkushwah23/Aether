@@ -17,6 +17,11 @@ const (
 	SUPPLY_MODE_CAPPED
 	SUPPLY_MODE_UNCAPPED
 	SUPPLY_MODE_COLLATERALIZED
+
+	SupplyModeUnspecified    = SUPPLY_MODE_UNSPECIFIED
+	SupplyModeCapped         = SUPPLY_MODE_CAPPED
+	SupplyModeUncapped       = SUPPLY_MODE_UNCAPPED
+	SupplyModeCollateralized = SUPPLY_MODE_COLLATERALIZED
 )
 
 // DenomPolicy is the isolated state object for one factory denom.
@@ -24,6 +29,8 @@ const (
 // so a capped token cannot be refilled back up to MaxSupply.
 type DenomPolicy struct {
 	Denom               string         `json:"denom"`
+	Creator             string         `json:"creator,omitempty"`
+	Subdenom            string         `json:"subdenom,omitempty"`
 	Admin               string         `json:"admin"`
 	Symbol              string         `json:"symbol"`
 	SupplyMode          SupplyMode     `json:"supply_mode"`

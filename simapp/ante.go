@@ -11,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	feesharetypes "github.com/cosmos/cosmos-sdk/x/feeshare/types"
 )
@@ -26,7 +25,7 @@ type FeeshareKeeper interface {
 // directly to the designated on-chain founder treasury address, leaving the remaining
 // balance to follow the normal x/distribution validator pool pathway.
 type FounderFeeSplitDecorator struct {
-	accountKeeper      authkeeper.AccountKeeper
+	accountKeeper      ante.AccountKeeper
 	bankKeeper         authtypes.BankKeeper
 	feegrantKeeper     ante.FeegrantKeeper
 	feeshareKeeper     FeeshareKeeper
@@ -36,7 +35,7 @@ type FounderFeeSplitDecorator struct {
 
 // NewFounderFeeSplitDecorator constructs the dynamic fee splitter decorator.
 func NewFounderFeeSplitDecorator(
-	ak authkeeper.AccountKeeper,
+	ak ante.AccountKeeper,
 	bk authtypes.BankKeeper,
 	fk ante.FeegrantKeeper,
 	fsk FeeshareKeeper,
